@@ -1,0 +1,158 @@
+## Connect to mysql server
+```{r ConnectToDB}
+# Connect to mysql server
+## Library
+library(RMySQL)
+
+## Settings freemysqlhosting.net (max 5MB)
+db_name_fh <- "sql12637820"
+db_user_fh <- "sql12637820"
+db_host_fh <- "sql12.freemysqlhosting.net"
+db_pwd_fh <- "ptskPrlkkw"
+db_port_fh <- 3306
+
+## Connect to remote server database
+mydb.fh <-  dbConnect(RMySQL::MySQL(), user = db_user_fh, password = db_pwd_fh,
+                      dbname = db_name_fh, host = db_host_fh, port =db_port_fh)
+mysql_conn <- mydb.fh
+
+```
+
+## Analytical Query I: 
+**Top five sales reps with the most sales broken down by year.**
+### Create support function findRepSold
+This function will support us to find the sales rep total sold in specific year
+```{r CreateFindRepSold, warning = F}
+# To find the amount of sold for specific rep in specific year
+findRepSold <- function (firstname,lastname,year,aDF)
+{
+  n <- nrow(aDF)
+  if(n == 0){
+    ### data frame is empty, so can't exist
+    return(0)
+  }
+  for(a in 1:n){
+    ### check if all columns match for a row; 
+    if (aDF[a,2] == firstname && aDF[a,3] == lastname && aDF[a,1] == year){
+      ### found a match; return it's total sales
+      return(aDF[a,4])
+    }
+  }
+  ### If there is not a match, it means there is no sales for the rep. Return 0   as the total sales for that year.
+  return(0)
+}
+```
+
+### Find the result by using serveral sql querys and put them in one data frame
+```{r QueryI, warning = F}
+# Create a rank data frame. 
+# It shows the top five sales reps name and their total sales
+sql <- "SELECT r.repfirstname, r.replastname, SUM(r.sold) AS total_sales
+        FROM rep_facts r
+        JOIN dimDate d ON r.dateid = d.did
+        GROUP BY r.repfirstname, r.replastname
+        ORDER BY total_sales DESC
+        LIMIT 5"
+rank_df <- dbGetQuery(mysql_conn, sql)
+
+# Create repsoldperyear data frame.
+# It shows the sales of every reps broken down by year
+sql <- "SELECT d.year, r.repfirstname, r.replastname, SUM(r.sold) AS total_sales
+        FROM rep_facts r
+        JOIN dimDate d ON r.dateid = d.did
+        GROUP BY r.repfirstname, r.replastname, d.year
+        "
+repsoldperyear_df <- dbGetQuery(mysql_conn, sql)
+
+# Create year data frame
+# It shows all the years the salestxn has
+sql <- "SELECT DISTINCT d.year
+        FROM rep_facts r
+        JOIN dimDate d ON r.dateid = d.did"
+year_df <- dbGetQuery(mysql_conn,sql)
+
+
+# Combined first name and last name into full name
+name <- c()
+for (i in 1:nrow(rank_df)) {
+  name <- c(name, paste(rank_df[i, 1], rank_df[i, 2]))
+}
+
+# Create result data frame
+# It shows the top reps with their total sales and sales in each year
+# I rank top five sales reps by their total sales
+result_df = data.frame( Rank = c(1,2,3,4,5),
+                        Full_Name = name,
+                        Total_Sales = rank_df$total_sales)
+for(i in 1:nrow(year_df)){
+  year_column = c()
+  year = year_df[i,1]
+  for(j in 1:nrow(rank_df)){
+    fn = rank_df[j,1]
+    ln = rank_df[j,2]
+    sold <- findRepSold(fn,ln,year,repsoldperyear_df)
+    year_column = c(year_column, sold)
+  }
+  result_df <- cbind(result_df, year_column)
+  
+  #Rename the year column
+  colnames(result_df)[3+i] = paste0("Sales_",as.character(year))
+}
+
+# Show the data frame
+print(result_df)
+
+
+```
+The table shows the total sales of five top sales representatives and their sales brokend down by year. Because we only has data in 2020. There only one column for year 2020.
+
+The rankings are determined by the total sales amounts achieved by each sales rep, with the first position occupied by Walison da Silva, followed by Aneeta Kappoorthy, Lynette McRowe, Helmut Schwab, and Prasad Patel.
+
+**Walison da Silva** Walison da Silva secured the top rank with an impressive total sales amount of $5,397,929. 
+
+**Aneeta Kappoorthy** Aneeta Kappoorthy claimed the second position with a notable total sales amount of $4,032,183. 
+
+**Lynette McRowe** Lynette McRowe, holding the third rank, achieved a commendable total sales amount of $2,770,588. 
+
+**Helmut Schwab** Helmut Schwab secured the fourth position with a noteworthy total sales amount of $2,031,307. 
+
+**Prasad Patel** Prasad Patel, at the fifth rank, achieved a substantial total sales amount of $1,999,163. 
+
+## Analytical Query II: Total sold per month. Show the result in a line graph visualization.
+### Find total sold per month by sql query
+```{r QueryII, warning = F}
+sql <- "SELECT SUM(p.sold) AS totalsold,d.month AS month
+        FROM product_facts p
+        JOIN dimDate d ON p.dateid = d.did
+        GROUP BY month"
+df <- dbGetQuery(mysql_conn, sql)
+print(df)
+```
+### Show the result in line graph
+```{r LineGraph, warning = F}
+plot(df$totalsold, type = "l",lwd = 1, main="Total sold per month", xlab = "Month" , ylab="Amount", col = "darkblue", names.arg=c( "Jan","Feb", "Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"), cex.names = 0.6,xaxt = "n",ylim = c(0, max(df$totalsold)*1.4))
+
+axis(side = 1, at = 1:length(df$month), labels = FALSE)
+mtext(c("Jan","Feb", "Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"), side = 1, at = 1:length(df$month),
+line = 1, las = 1, adj = 0.5, cex = 0.8)
+
+legend("topleft", legend = "Amount", fill = "darkblue", cex = 0.7)
+
+text(x = 1:length(df$totalsold),
+y =df$totalsold, labels = df$totalsold, pos = 3, cex = 0.5)
+```
+This line graph provides total sales amount for each month. From this graph, we can get some information
+
+**The lowest sales** The lowest sales was observed in January, which is $823,207
+
+**The highest sales** The highest sales was in October, with total amount of $1,717,102 
+
+**Summary** Based on the monthly sales data, the company experienced fluctuations in sales throughout the year. There were months of exceptional falling, such as January and December. But overall the total amount sales maintained in a high level over the year
+
+
+## Disconnect from database
+```{r DisconnectFromDB}
+dbDisconnect(mysql_conn)
+```
+
+
