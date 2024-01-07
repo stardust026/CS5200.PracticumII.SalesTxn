@@ -2,7 +2,7 @@
 ## Library
 library(RMySQL)
 
-## Settings freemysqlhosting.net (max 5MB)
+## Settings freemysqlhosting.net（currently not working）
 db_name_fh <- "sql12637820"
 db_user_fh <- "sql12637820"
 db_host_fh <- "sql12.freemysqlhosting.net"
